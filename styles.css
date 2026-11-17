@@ -1,0 +1,31 @@
+/* Raindown's directives in the editor, in the theme's own colours. A directive in a comment is inside Obsidian's
+   comment highlighting, so its colours are set on what's inside it too. */
+.cm-raindown-name, .cm-raindown-name * { color: var(--text-accent); font-weight: var(--font-semibold); }
+.cm-raindown-end, .cm-raindown-end *,
+.cm-raindown-self-closing, .cm-raindown-self-closing * { color: var(--text-accent); }
+.cm-raindown-prop, .cm-raindown-prop * { color: var(--code-property); }
+.cm-raindown-string, .cm-raindown-string * { color: var(--code-string); }
+.cm-raindown-number, .cm-raindown-number * { color: var(--code-value); }
+.cm-raindown-flag, .cm-raindown-flag * { color: var(--code-keyword); }
+.cm-raindown-variable, .cm-raindown-variable * { color: var(--code-important); }
+.cm-raindown-delimiter, .cm-raindown-delimiter * { color: var(--code-punctuation); }
+/* The line of an error Raindown found, like a directive without its end tag. */
+.cm-raindown-error { text-decoration: underline wavy var(--text-error); text-underline-offset: 3px; }
+/* The button after a table: directive, opening its file. */
+.cm-raindown-open-file { margin-left: 0.5em; padding: 0 0.5em; height: auto; font-size: var(--font-ui-smaller); vertical-align: middle; }
+/* A setting's warning, a blank line below its description. */
+.raindown-setting-warning { margin-top: 1em; }
+/* The hint beside a directive whose write-back waits for the cursor to leave its line, or Enter. */
+.cm-raindown-hint { margin-left: 0.75em; padding: 0 0.4em; border-radius: var(--radius-s); background: var(--interactive-accent); color: var(--text-on-accent); font-family: var(--font-interface); font-size: var(--font-ui-smaller); }
+/* Raindown pads a table's columns to line up, which only shows in a monospace font, on lines that don't wrap, so a
+   wide table scrolls sideways rather than wrapping its rows. */
+.markdown-source-view.mod-cm6 .cm-raindown-table,
+.markdown-source-view.mod-cm6 .cm-raindown-table * { font-family: var(--font-monospace); }
+.markdown-source-view.mod-cm6 .cm-raindown-table { white-space: pre; }
+/* A table's header in bold, its delimiter row muted, and its pipes faint, so its cells stand out. */
+.markdown-source-view.mod-cm6 .cm-raindown-table-header { font-weight: var(--font-bold); }
+.markdown-source-view.mod-cm6 .cm-raindown-table-delimiter { color: var(--text-muted); }
+.markdown-source-view.mod-cm6 .cm-raindown-table-pipe { color: var(--text-faint); font-weight: var(--font-normal); }
+/* A row carrying on the one above, an expanded cell's text, has its |+ and pipes in the accent colour, so it's plain
+   it's part of it. */
+.markdown-source-view.mod-cm6 .cm-raindown-table-expansion { color: var(--text-accent); font-weight: var(--font-normal); }

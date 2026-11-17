@@ -1,0 +1,12 @@
+{
+  "name": "raindown-obsidian",
+  "version": "0.11.0",
+  "private": true,
+  "description": "Raindown for Obsidian",
+  "license": "MPL-2.0",
+  "main": "main.js",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "version": "node version-bump.mjs && git add manifest.json versions.json"
+  }
+}

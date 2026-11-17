@@ -1,0 +1,256 @@
+Ruby 4.0 in WebAssembly without Asyncify, for the plugin's module for engines with JSPI, JavaScript Promise
+Integration, which scripts/ruby_wasm.rb builds with this with --jspi, rather than the jumps patch, with the shapes
+patch, and ruby-4.0-jspi-idle-gc.patch, from a wasi-sdk with LLVM 19 or later and Binaryen 131, which bin/build
+downloads.
+
+Asyncify instruments most of Ruby's C so it can unwind and rewind the stack, for setjmp, for garbage collection to read
+its locals, and to switch Fibers, which makes all of it slower, about 1.5 to 2 times, and the module bigger. Built
+with RB_WASM_EH, and with -mllvm -wasm-enable-sjlj -mexception-handling and -lsetjmp:
+
+1. setjmp is wasi-libc's, from WebAssembly exception handling, in eval_intern.h, vm_core.h and gc.c, and vm_exec takes
+   Ruby's own path with it, in vm.c, with a jmp_buf of the usual size, in vm_core.h.
+2. Garbage collection scans only the stack in memory, in gc.c, and can't see WebAssembly's locals, as the configure
+   runs Binaryen's --flatten and --coalesce-locals after linking, in place of --asyncify, but not --spill-pointers,
+   which would keep every value that's live across a call on the stack there, at a cost of 15 to 25%. So
+   ruby-4.0-jspi-idle-gc.patch only collects between requests, with no Ruby on the stack.
+3. Each Fiber is a stack of JSPI's, in wasm/fiber.c: rb_wasm_jspi.switch, a WebAssembly.Suspending the worker gives,
+   suspends the stack until something switches back to it, and resumes the one switched to, or starts a new one's by
+   calling rb_wasm_jspi_fiber_start through WebAssembly.promising. So Fibers switch in Ruby the worker calls through
+   WebAssembly.promising, like rb_wasm_jspi_eval, in wasm/missing.c, which runs RbWasmJSPI.run.
+4. Ruby waits for JavaScript with RbWasmJSPI.wait, in wasm/missing.c, which rb_wasm_jspi_define defines, calling
+   rb_wasm_jspi.await, a WebAssembly.Suspending, until the promise the worker keeps by its id settles.
+5. Asyncify's functions are wasm/missing.c's, in wasm/asyncify.h, which trap, but for stopping an unwind, which nothing
+   starts. The js gem's extension imports them, and links to these.
+
+--- a/configure
++++ b/configure
+@@ -13163,7 +13163,7 @@
+      CPPFLAGS="$CPPFLAGS ${rb_opt}" ;;
+ esac
+ 	done
+-		POSTLINK="\$(WASMOPT) --asyncify \$(wasmoptflags) -o \$@ \$@${POSTLINK:+; $POSTLINK}"
++		POSTLINK="\$(WASMOPT) --flatten --coalesce-locals \$(wasmoptflags) -o \$@ \$@${POSTLINK:+ && $POSTLINK}"
+ 		# wasi-libc's sys/socket.h is not compatible with -std=gnu99,
+ 		# so re-declare shutdown in include/ruby/missing.h
+ 		ac_cv_func_shutdown=no
+--- a/eval_intern.h
++++ b/eval_intern.h
+@@ -33,7 +33,7 @@
+ #endif
+ 
+ #include <stdio.h>
+-#if defined(__wasm__) && !defined(__EMSCRIPTEN__)
++#if defined(__wasm__) && !defined(__EMSCRIPTEN__) && !defined(RB_WASM_EH)
+ # include "wasm/setjmp.h"
+ #else
+ # include <setjmp.h>
+--- a/gc.c
++++ b/gc.c
+@@ -19,12 +19,15 @@
+ # include "ruby/ruby.h"
+ #endif
+ 
+-#if defined(__wasm__) && !defined(__EMSCRIPTEN__)
++#if defined(__wasm__) && !defined(__EMSCRIPTEN__) && !defined(RB_WASM_EH)
+ # include "wasm/setjmp.h"
+ # include "wasm/machine.h"
+ #else
+ # include <setjmp.h>
+ #endif
++#ifdef RB_WASM_EH
++# include "wasm/machine.h"
++#endif
+ #include <stdarg.h>
+ #include <stdio.h>
+ 
+@@ -2935,8 +2938,10 @@
+     GET_STACK_BOUNDS(stack_start, stack_end, 1);
+     each_location_ptr(stack_start, stack_end, gc_mark_maybe_each_location, NULL);
+ 
++#ifndef RB_WASM_EH
+     rb_wasm_scan_locals(rb_mark_locations);
+     each_location_ptr(rb_stack_range_tmp[0], rb_stack_range_tmp[1], gc_mark_maybe_each_location, NULL);
++#endif
+ }
+ 
+ # endif
+--- a/vm.c
++++ b/vm.c
+@@ -2740,7 +2740,7 @@
+ vm_exec_loop(rb_execution_context_t *ec, enum ruby_tag_type state, struct rb_vm_tag *tag, VALUE result);
+ 
+ // for non-Emscripten Wasm build, use vm_exec with optimized setjmp for runtime performance
+-#if defined(__wasm__) && !defined(__EMSCRIPTEN__)
++#if defined(__wasm__) && !defined(__EMSCRIPTEN__) && !defined(RB_WASM_EH)
+ 
+ struct rb_vm_exec_context {
+     rb_execution_context_t *const ec;
+@@ -2777,7 +2777,7 @@
+ 
+     _tag.retval = Qnil;
+ 
+-#if defined(__wasm__) && !defined(__EMSCRIPTEN__)
++#if defined(__wasm__) && !defined(__EMSCRIPTEN__) && !defined(RB_WASM_EH)
+     struct rb_vm_exec_context ctx = {
+         .ec = ec,
+         .tag = &_tag,
+--- a/vm_core.h
++++ b/vm_core.h
+@@ -102,7 +102,7 @@
+ #define RUBY_ASSERT_CRITICAL_SECTION_LEAVE()
+ #endif
+ 
+-#if defined(__wasm__) && !defined(__EMSCRIPTEN__)
++#if defined(__wasm__) && !defined(__EMSCRIPTEN__) && !defined(RB_WASM_EH)
+ # include "wasm/setjmp.h"
+ #else
+ # include <setjmp.h>
+@@ -954,7 +954,7 @@
+   `RB_VM_TAG_JMPBUF_GET` transforms a `rb_vm_tag_jmpbuf_t` into a
+   `rb_jmpbuf_t` to be passed to `rb_setjmp/rb_longjmp`.
+ */
+-#if defined(__wasm__) && !defined(__EMSCRIPTEN__)
++#if defined(__wasm__) && !defined(__EMSCRIPTEN__) && !defined(RB_WASM_EH)
+ /*
+   WebAssembly target with Asyncify-based SJLJ needs
+   to capture the execution context by unwind/rewind-ing
+--- a/wasm/asyncify.h
++++ b/wasm/asyncify.h
+@@ -1,6 +1,18 @@
+ #ifndef RB_WASM_SUPPORT_ASYNCIFY_H
+ #define RB_WASM_SUPPORT_ASYNCIFY_H
+ 
++#ifdef RB_WASM_EH
++/*
++  No Asyncify: these are wasm/missing.c's, which trap, but for stopping an unwind, so a Fiber switch, the only thing left
++  that needs one, aborts. The js gem's extension imports them too, and links to these.
++*/
++extern void *rb_asyncify_unwind_buf;
++void asyncify_start_unwind(void *buf);
++void asyncify_stop_unwind(void);
++void asyncify_start_rewind(void *buf);
++void asyncify_stop_rewind(void);
++#else
++
+ __attribute__((import_module("asyncify"), import_name("start_unwind")))
+ void asyncify_start_unwind(void *buf);
+ #define asyncify_start_unwind(buf) do {  \
+@@ -19,5 +31,7 @@
+ void asyncify_start_rewind(void *buf);
+ __attribute__((import_module("asyncify"), import_name("stop_rewind")))
+ void asyncify_stop_rewind(void);
++
++#endif
+ 
+ #endif
+--- a/wasm/fiber.c
++++ b/wasm/fiber.c
+@@ -7,6 +7,53 @@
+  * This Asyncify based implementation is not much efficient and will be replaced with future stack-switching feature.
+  */
+ 
++#ifdef RB_WASM_EH
++#include <stddef.h>
++/*
++  Without Asyncify, each Fiber is a stack of JSPI's, JavaScript Promise Integration: the JavaScript that instantiates
++  Ruby gives rb_wasm_jspi.switch as a WebAssembly.Suspending, which suspends the stack that calls it, until something
++  switches back to it, and resumes the stack switched to, or starts a new Fiber's, by calling
++  rb_wasm_jspi_fiber_start through WebAssembly.promising. So Fibers can only switch in Ruby that JavaScript called
++  through WebAssembly.promising, like rb_wasm_jspi_eval.
++*/
++#include "wasm/fiber.h"
++
++__attribute__((import_module("rb_wasm_jspi"), import_name("switch")))
++void rb_wasm_jspi_switch(rb_wasm_fiber_context *from, rb_wasm_fiber_context *to, int start);
++
++void
++rb_wasm_init_context(rb_wasm_fiber_context *fcp, void (*func)(void *, void *), void *arg0, void *arg1)
++{
++    fcp->entry_point = func;
++    fcp->arg0 = arg0;
++    fcp->arg1 = arg1;
++    fcp->is_rewinding = false;
++    fcp->is_started = false;
++}
++
++void
++rb_wasm_swapcontext(rb_wasm_fiber_context *ofcp, rb_wasm_fiber_context *fcp)
++{
++    int start = !fcp->is_started;
++    fcp->is_started = true;
++    rb_wasm_jspi_switch(ofcp, fcp, start);
++}
++
++__attribute__((export_name("rb_wasm_jspi_fiber_start")))
++void
++rb_wasm_jspi_fiber_start(rb_wasm_fiber_context *fcp)
++{
++    fcp->entry_point(fcp->arg0, fcp->arg1);
++}
++
++void *
++rb_wasm_handle_fiber_unwind(void (**new_fiber_entry)(void *, void *),
++                            void **arg0, void **arg1, bool *is_new_fiber_started)
++{
++    *is_new_fiber_started = false;
++    return NULL;
++}
++#else
+ #include <stdlib.h>
+ #include "wasm/fiber.h"
+ #include "wasm/asyncify.h"
+@@ -81,3 +128,4 @@
+         return &next_fiber->asyncify_buf;
+     }
+ }
++#endif
+--- a/wasm/missing.c
++++ b/wasm/missing.c
+@@ -190,3 +190,47 @@
+     errno = ENOTSUP;
+     return -1;
+ }
++
++#ifdef RB_WASM_EH
++#include "wasm/asyncify.h"
++
++void asyncify_start_unwind(void *buf) { (void)buf; __builtin_trap(); }
++void asyncify_stop_unwind(void) { rb_asyncify_unwind_buf = 0; }
++void asyncify_start_rewind(void *buf) { (void)buf; __builtin_trap(); }
++void asyncify_stop_rewind(void) { __builtin_trap(); }
++#endif
++
++#ifdef RB_WASM_EH
++/*
++  Ruby that waits for JavaScript without Asyncify, with JSPI: rb_wasm_jspi_eval runs RbWasmJSPI.run, which JavaScript
++  calls through WebAssembly.promising, and RbWasmJSPI.wait(id), which rb_wasm_jspi_define defines, calls
++  rb_wasm_jspi.await, a WebAssembly.Suspending, which suspends the stack until the promise JavaScript keeps by its id
++  settles, and gives whether it failed.
++*/
++#include "ruby/ruby.h"
++
++__attribute__((import_module("rb_wasm_jspi"), import_name("await")))
++int rb_wasm_jspi_await(int id);
++
++static VALUE
++rb_wasm_jspi_wait(VALUE self, VALUE id)
++{
++    return rb_wasm_jspi_await(NUM2INT(id)) ? Qtrue : Qfalse;
++}
++
++__attribute__((export_name("rb_wasm_jspi_define")))
++void
++rb_wasm_jspi_define(void)
++{
++    rb_define_module_function(rb_define_module("RbWasmJSPI"), "wait", rb_wasm_jspi_wait, 1);
++}
++
++__attribute__((export_name("rb_wasm_jspi_eval")))
++int
++rb_wasm_jspi_eval(void)
++{
++    int state = 0;
++    rb_eval_string_protect("RbWasmJSPI.run", &state);
++    return state;
++}
++#endif

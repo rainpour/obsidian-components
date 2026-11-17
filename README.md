@@ -53,3 +53,7 @@ A component whose text has blank lines in it goes between two lines instead, as 
 ## Want more?
 
 Components is part of [Raindown](https://raindown.dev), which writes tables, tables of contents, lists and charts into your notes too, and runs components written in JavaScript or Ruby. Its plugin, **Raindown**, does all Components does, so Components turns itself off while Raindown's on.
+
+## Source
+
+Components is built from the same source as Raindown's Obsidian plugin, in [rainpour/raindown-obsidian](https://github.com/rainpour/raindown-obsidian), where changes are made. Each release copies its source here, as it is at that release: `src/` is the plugin, with `src/edition.js` saying which plugin it's built as, and `bin/build` builds both, as [DEVELOPMENT.md](DEVELOPMENT.md) says, Components into `build/components`.
