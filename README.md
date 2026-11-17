@@ -20,24 +20,29 @@ Its properties are the values it takes, with what each is when a note doesn't sa
 
 ## Use it
 
-In any note, name the component between two lines, with its values:
+In any note, write the component's name and its values on a line of their own:
 
 ```md
-<!-- BookCard: title: 'Dune' rating: 5 -->
-<!-- :BookCard -->
+BookCard: title: 'Dune' rating: 5
 ```
 
-Components writes it in between:
+Components writes it straight below:
 
 ```md
-<!-- BookCard: title: 'Dune' rating: 5 -->
+BookCard: title: 'Dune' rating: 5
 **Dune** · 5/5
-<!-- :BookCard -->
 ```
 
-Change a value on the first line, and it's written again. Edit `BookCard`, and every note that uses it is written again, a moment after you stop typing. What's between the two lines is the component's, so change it in the component, or its values on the first line, rather than there.
+Change a value, and it's written again. Edit `BookCard`, and every note that uses it is written again, a moment after you stop typing. What's below the line, up to the next blank line, is the component's, so change it in the component, or its values on the line, rather than there.
 
 Text goes in quotes, like `title: 'Dune'`, while numbers and `true` or `false` don't need them.
+
+A component whose text has blank lines in it goes between two lines instead, as a blank line would end it:
+
+```md
+<!-- BookCard: title: 'Dune' rating: 5 -->
+<!-- :BookCard -->
+```
 
 ## Why Components
 
